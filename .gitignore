@@ -28,3 +28,7 @@ frontend/node_modules/
 .idea/
 *.suo
 *.user
+
+
+# local file
+local.md
