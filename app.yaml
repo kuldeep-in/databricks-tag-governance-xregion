@@ -11,7 +11,7 @@ env:
   - name: CONFIG_CATALOG
     value: "<catalog-name>"
   - name: CONFIG_SCHEMA
-    value: "<schema-name>"
+    value: "uc_governance"
   - name: SQL_WAREHOUSE_ID
     value: "<warehouse-id>"
 
@@ -24,7 +24,7 @@ env:
   - name: SEC_1_DISPLAY_NAME
     value: "<workspace-display-name>"
   - name: SEC_1_SP_CLIENT_ID
-    value: "<service-principal-application-id>"
+    value: "{{secrets/tag-governance/sec-1-sp-client-id}}"
   - name: SEC_1_SP_CLIENT_SECRET
     value: "{{secrets/tag-governance/sec-1-sp-secret}}"
   - name: SEC_1_SQL_WAREHOUSE_ID
