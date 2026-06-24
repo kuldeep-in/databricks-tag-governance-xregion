@@ -3,7 +3,7 @@
 -- ============================================================
 DECLARE OR REPLACE VARIABLE v_principal       STRING DEFAULT '<user_email_or_group_name>';
 DECLARE OR REPLACE VARIABLE v_primary_catalog STRING DEFAULT '<primary_catalog>';
-DECLARE OR REPLACE VARIABLE v_schema          STRING DEFAULT 'metadata_manager_config';
+DECLARE OR REPLACE VARIABLE v_schema          STRING DEFAULT 'uc_governance';
 
 -- ============================================================
 -- Primary Region Workspace — UC Permission Grants for App Users
@@ -26,8 +26,8 @@ EXECUTE IMMEDIATE 'GRANT USE SCHEMA ON SCHEMA `' || v_primary_catalog || '`.`' |
 -- Step 3: Read and write access to config tables
 -- SELECT: read tag dictionary and scope config on app load
 -- MODIFY: save changes made in the Configuration tab
-EXECUTE IMMEDIATE 'GRANT SELECT, MODIFY ON TABLE `' || v_primary_catalog || '`.`' || v_schema || '`.`demo01_tag_dictionary` TO `' || v_principal || '`';
-EXECUTE IMMEDIATE 'GRANT SELECT, MODIFY ON TABLE `' || v_primary_catalog || '`.`' || v_schema || '`.`demo01_scope_config` TO `' || v_principal || '`';
+EXECUTE IMMEDIATE 'GRANT SELECT, MODIFY ON TABLE `' || v_primary_catalog || '`.`' || v_schema || '`.`govern_tag_dictionary` TO `' || v_principal || '`';
+EXECUTE IMMEDIATE 'GRANT SELECT, MODIFY ON TABLE `' || v_primary_catalog || '`.`' || v_schema || '`.`govern_scope_config` TO `' || v_principal || '`';
 
 -- ============================================================
 -- OPTIONAL — Apply Tag on catalog

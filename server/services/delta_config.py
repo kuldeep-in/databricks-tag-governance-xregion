@@ -19,8 +19,8 @@ from server.config import (
     get_user_client,
 )
 
-TAG_DICT_TABLE = f"{CONFIG_CATALOG}.{CONFIG_SCHEMA}.demo01_tag_dictionary"
-SCOPE_TABLE = f"{CONFIG_CATALOG}.{CONFIG_SCHEMA}.demo01_scope_config"
+TAG_DICT_TABLE = f"{CONFIG_CATALOG}.{CONFIG_SCHEMA}.govern_tag_dictionary"
+SCOPE_TABLE = f"{CONFIG_CATALOG}.{CONFIG_SCHEMA}.govern_scope_config"
 
 
 def _execute(statement: str, token: str = "") -> dict:
@@ -71,8 +71,8 @@ def _sql_str(value: str) -> str:
 # --------------------------------------------------------------------------- #
 def get_tag_dictionary(token: str = "") -> list[dict]:
     result = _execute(
-        f"SELECT tag_key, allowed_values, free_text FROM {TAG_DICT_TABLE} "
-        f"ORDER BY tag_key",
+        f"SELECT tag_key, allowed_values, free_text, sort_order FROM {TAG_DICT_TABLE} "
+        f"ORDER BY sort_order ASC NULLS LAST, tag_key",
         token=token,
     )
     out: list[dict] = []
@@ -86,10 +86,17 @@ def get_tag_dictionary(token: str = "") -> list[dict]:
         free_text = row.get("free_text")
         if isinstance(free_text, str):
             free_text = free_text.lower() == "true"
+        sort_order = row.get("sort_order")
+        if sort_order is not None:
+            try:
+                sort_order = int(sort_order)
+            except (ValueError, TypeError):
+                sort_order = None
         out.append({
             "tag_key": row.get("tag_key"),
             "allowed_values": allowed,
             "free_text": bool(free_text),
+            "sort_order": sort_order,
         })
     return out
 
@@ -123,6 +130,24 @@ def delete_tag_key(tag_key: str, token: str = "") -> dict:
     _execute(f"DELETE FROM {TAG_DICT_TABLE} WHERE tag_key = {_sql_str(tag_key)}",
              token=token)
     return {"deleted": tag_key}
+
+
+def set_tag_order(ordered_keys: list[str], token: str = "") -> None:
+    """Persist display order by setting sort_order = index for every key in the list."""
+    if not ordered_keys:
+        return
+    cases = " ".join(
+        f"WHEN tag_key = {_sql_str(k)} THEN {i}"
+        for i, k in enumerate(ordered_keys)
+    )
+    in_list = ", ".join(_sql_str(k) for k in ordered_keys)
+    _execute(
+        f"UPDATE {TAG_DICT_TABLE} "
+        f"SET sort_order = CASE {cases} ELSE sort_order END, "
+        f"    updated_at = current_timestamp() "
+        f"WHERE tag_key IN ({in_list})",
+        token=token,
+    )
 
 
 def _resolve_workspace_url(workspace_url: str) -> str:

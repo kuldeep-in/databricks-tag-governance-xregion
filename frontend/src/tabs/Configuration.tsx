@@ -52,8 +52,8 @@ function IdentityBanner() {
       </div>
       <p className="mt-3 text-xs text-gray-400">
         This identity is used to read and write the config tables in the primary workspace.
-        Ensure it has SELECT + MODIFY on <code className="bg-gray-100 px-1 rounded">demo01_tag_dictionary</code> and{' '}
-        <code className="bg-gray-100 px-1 rounded">demo01_scope_config</code>.
+        Ensure it has SELECT + MODIFY on <code className="bg-gray-100 px-1 rounded">govern_tag_dictionary</code> and{' '}
+        <code className="bg-gray-100 px-1 rounded">govern_scope_config</code>.
       </p>
     </div>
   );
@@ -265,6 +265,30 @@ function TagDictionarySection() {
     onError: (err: Error) => toast.error(`Failed to delete tag key: ${err.message}`),
   });
 
+  const reorder = useMutation({
+    mutationFn: (keys: string[]) => apiClient.putTagOrder(keys),
+    onMutate: (keys) => {
+      // Optimistic update — reorder the cached list immediately
+      queryClient.setQueryData<TagDictEntry[]>(['tagdictionary'], (prev) => {
+        if (!prev) return prev;
+        return keys.map((k) => prev.find((e) => e.tag_key === k)!).filter(Boolean);
+      });
+    },
+    onError: () => {
+      queryClient.invalidateQueries({ queryKey: ['tagdictionary'] });
+      toast.error('Failed to save tag order');
+    },
+  });
+
+  const moveKey = (index: number, direction: 'up' | 'down') => {
+    const entries = dictQuery.data ?? [];
+    const keys = entries.map((e) => e.tag_key);
+    const swapWith = direction === 'up' ? index - 1 : index + 1;
+    if (swapWith < 0 || swapWith >= keys.length) return;
+    [keys[index], keys[swapWith]] = [keys[swapWith], keys[index]];
+    reorder.mutate(keys);
+  };
+
   const parsedAllowed = useMemo(
     () => allowed.split(',').map((v) => v.trim()).filter(Boolean),
     [allowed]
@@ -290,6 +314,8 @@ function TagDictionarySection() {
     setAllowed((entry.allowed_values ?? []).join(', '));
     setFreeText(entry.free_text);
   };
+
+  const entries = dictQuery.data ?? [];
 
   return (
     <div className="bg-white rounded-lg border border-gray-200">
@@ -338,6 +364,7 @@ function TagDictionarySection() {
         <table className="w-full text-sm">
           <thead className="bg-gray-50 text-gray-500 text-left">
             <tr>
+              <th className="px-4 py-2 w-16">Order</th>
               <th className="px-4 py-2">Tag key</th>
               <th className="px-4 py-2">Allowed values</th>
               <th className="px-4 py-2">Free text</th>
@@ -345,8 +372,32 @@ function TagDictionarySection() {
             </tr>
           </thead>
           <tbody>
-            {(dictQuery.data ?? []).map((e) => (
+            {entries.map((e, idx) => (
               <tr key={e.tag_key} className="border-t border-gray-100">
+                <td className="px-4 py-2">
+                  <div className="flex items-center gap-0.5">
+                    <button
+                      disabled={idx === 0 || reorder.isPending}
+                      onClick={() => moveKey(idx, 'up')}
+                      title="Move up"
+                      className="p-0.5 rounded hover:bg-gray-100 disabled:opacity-25 disabled:cursor-not-allowed text-gray-500"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M3 9l4-4 4 4" />
+                      </svg>
+                    </button>
+                    <button
+                      disabled={idx === entries.length - 1 || reorder.isPending}
+                      onClick={() => moveKey(idx, 'down')}
+                      title="Move down"
+                      className="p-0.5 rounded hover:bg-gray-100 disabled:opacity-25 disabled:cursor-not-allowed text-gray-500"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M3 5l4 4 4-4" />
+                      </svg>
+                    </button>
+                  </div>
+                </td>
                 <td className="px-4 py-2 font-medium">{e.tag_key}</td>
                 <td className="px-4 py-2">
                   {e.allowed_values && e.allowed_values.length
@@ -367,9 +418,9 @@ function TagDictionarySection() {
                 </td>
               </tr>
             ))}
-            {(dictQuery.data ?? []).length === 0 && (
+            {entries.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-4 py-6 text-center text-gray-400">
+                <td colSpan={5} className="px-4 py-6 text-center text-gray-400">
                   No tag keys defined yet.
                 </td>
               </tr>

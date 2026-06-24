@@ -18,16 +18,9 @@ def get_tables(
     workspace_url: str = Query(default="primary"),
     token: str = Depends(current_user_token),
 ):
-    # Load tag keys from the config dictionary so only configured tags are returned.
-    tag_keys: list[str] | None = None
-    try:
-        tag_keys = [e["tag_key"] for e in cfg.get_tag_dictionary(token=token)]
-    except Exception:
-        pass  # If config unavailable, fall back to loading all tags
-
     try:
         tables = uc.list_tables(
-            catalog, schema, workspace_url=workspace_url, token=token, tag_keys=tag_keys
+            catalog, schema, workspace_url=workspace_url, token=token
         )
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=str(exc))

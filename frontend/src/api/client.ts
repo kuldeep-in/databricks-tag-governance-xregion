@@ -47,6 +47,7 @@ export interface TagDictEntry {
   tag_key: string;
   allowed_values: string[] | null;
   free_text: boolean;
+  sort_order: number | null;
 }
 
 export interface WorkspaceInfo {
@@ -167,6 +168,8 @@ export const apiClient = {
       .then((r) => r.data),
   deleteTagDictionary: (tagKey: string) =>
     api.delete(`/config/tagdictionary/${tagKey}`).then((r) => r.data),
+  putTagOrder: (orderedKeys: string[]) =>
+    api.put('/config/tagdictionary/order', { ordered_keys: orderedKeys }).then((r) => r.data),
 };
 
 export default apiClient;

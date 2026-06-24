@@ -12,9 +12,12 @@ This module exposes WorkspaceClient factories for the two workspace types:
 
 from __future__ import annotations
 
+import logging
 import os
 
 from databricks.sdk import WorkspaceClient
+
+logger = logging.getLogger(__name__)
 
 # True when running inside a deployed Databricks App (creds auto-injected).
 IS_DATABRICKS_APP: bool = bool(os.environ.get("DATABRICKS_APP_NAME"))
@@ -24,8 +27,8 @@ PRIMARY_PROFILE = "fevm01"
 
 # --- Config table location (Primary Region) ---
 CONFIG_CATALOG = os.environ.get("CONFIG_CATALOG", "main")
-CONFIG_SCHEMA = os.environ.get("CONFIG_SCHEMA", "metadata_manager_config")
-SQL_WAREHOUSE_ID = os.environ.get("SQL_WAREHOUSE_ID", "be36b9019531b864")
+CONFIG_SCHEMA = os.environ.get("CONFIG_SCHEMA", "uc_governance")
+SQL_WAREHOUSE_ID = os.environ.get("SQL_WAREHOUSE_ID", "")
 
 
 def get_primary_client() -> WorkspaceClient:
@@ -60,16 +63,73 @@ def get_user_client(token: str) -> WorkspaceClient:
 
 
 def _build_secondary_client(workspace_url: str, client_id: str, client_secret: str) -> WorkspaceClient:
-    """Build a WorkspaceClient for a secondary workspace using OAuth M2M credentials."""
-    host = workspace_url.strip()
+    """Build a WorkspaceClient for a secondary workspace using OAuth M2M credentials.
+
+    The Databricks Apps platform injects DATABRICKS_CLIENT_ID/SECRET (primary SP) as env vars.
+    Passing those to WorkspaceClient() alongside explicit secondary credentials causes the SDK
+    to use the primary SP credentials, which aren't registered in the secondary workspace.
+    Fix: exchange the token manually (bypassing the SDK auth layer), then create a PAT client.
+    """
+    import httpx as _httpx
+
+    host = workspace_url.strip().rstrip("/")
     if not host.startswith("http"):
         host = f"https://{host}"
-    return WorkspaceClient(
-        host=host,
-        client_id=client_id,
-        client_secret=client_secret,
-        auth_type="oauth-m2m",
+
+    logger.info(
+        "Secondary workspace M2M token exchange: host=%s client_id=%s secret_len=%d",
+        host, client_id, len(client_secret),
     )
+    resp = _httpx.post(
+        f"{host}/oidc/v1/token",
+        data={
+            "grant_type": "client_credentials",
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "scope": "all-apis",
+        },
+        timeout=30,
+    )
+    if resp.status_code != 200:
+        raise RuntimeError(
+            f"M2M token exchange failed for {host} (client_id={client_id}): "
+            f"{resp.status_code} {resp.text}"
+        )
+    token = resp.json().get("access_token", "")
+    if not token:
+        raise RuntimeError(f"M2M token exchange returned no access_token for {host}")
+
+    logger.info("Secondary workspace token acquired OK: host=%s", host)
+    return WorkspaceClient(host=host, token=token, auth_type="pat")
+
+
+def _resolve_secret_ref(value: str) -> str:
+    """Resolve a {{secrets/scope/key}} reference by reading directly from the Secrets API.
+
+    Databricks Apps is supposed to resolve these references at startup, but in some
+    environments the literal placeholder string is injected instead. This function
+    detects that case and reads the value via the Databricks Secrets API using the
+    app's own service principal credentials (which have READ on the scope).
+    """
+    if not (value.startswith("{{secrets/") and value.endswith("}}")):
+        return value  # already a plain value — nothing to do
+    path = value[2:-2]  # strip {{ and }}
+    parts = path.split("/")
+    if len(parts) != 3 or parts[0] != "secrets":
+        return value  # unrecognised format — return as-is
+    scope, key = parts[1], parts[2]
+    logger.info("Secret ref unresolved by platform — fetching via Secrets API: scope=%s key=%s", scope, key)
+    try:
+        import base64 as _base64
+        result = get_primary_client().secrets.get_secret(scope=scope, key=key)
+        b64 = result.value or ""
+        decoded = _base64.b64decode(b64).decode("utf-8")
+        logger.info("Secret fetched OK from Secrets API: scope=%s key=%s decoded_len=%d", scope, key, len(decoded))
+        return decoded
+    except Exception as exc:
+        raise RuntimeError(
+            f"Failed to resolve secret {{{{secrets/{scope}/{key}}}}}: {exc}"
+        ) from exc
 
 
 def _parse_secondary_workspaces_from_env() -> list[dict]:
@@ -87,14 +147,15 @@ def _parse_secondary_workspaces_from_env() -> list[dict]:
         if not url:
             break
         normalized = url if url.startswith("http") else f"https://{url}"
+        raw_secret = os.environ.get(f"SEC_{n}_SP_CLIENT_SECRET", "").strip()
         workspaces.append({
             "workspace_url": normalized,
             "display_name": (
                 os.environ.get(f"SEC_{n}_DISPLAY_NAME", "").strip()
                 or normalized.replace("https://", "")
             ),
-            "client_id": os.environ.get(f"SEC_{n}_SP_CLIENT_ID", "").strip(),
-            "client_secret": os.environ.get(f"SEC_{n}_SP_CLIENT_SECRET", "").strip(),
+            "client_id": _resolve_secret_ref(os.environ.get(f"SEC_{n}_SP_CLIENT_ID", "").strip()),
+            "client_secret": _resolve_secret_ref(raw_secret),
             "warehouse_id": os.environ.get(f"SEC_{n}_SQL_WAREHOUSE_ID", "").strip(),
         })
         n += 1

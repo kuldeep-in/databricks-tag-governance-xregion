@@ -120,7 +120,7 @@ Two inner sub-tabs: **Workspace** and **Tag Dictionary**.
 - Scope section — manage which catalogs and schemas are in scope for the selected workspace. Catalog and schema dropdowns use `SHOW CATALOGS` / `information_schema.schemata` SQL (primary) or SP credentials (secondary). Each entry can be toggled active/inactive or removed.
 - "Add Secondary Workspace" — collapsible step-by-step guide (collapsed by default) for creating a SP, granting it UC permissions, and wiring it into `app.yaml`.
 
-**Tag Dictionary sub-tab** — define allowed tag keys and their values. Saved to `demo01_tag_dictionary`.
+**Tag Dictionary sub-tab** — define allowed tag keys and their values. Saved to `govern_tag_dictionary`.
 
 | Tag Key | Allowed Values | Free Text |
 |---|---|---|
@@ -160,7 +160,7 @@ All catalog/schema/table listing and tag/comment writes use SQL execution via th
 |---|---|
 | `USE CATALOG` on config catalog | Navigate to the config schema |
 | `USE SCHEMA` on config schema | Access config tables |
-| `SELECT` + `MODIFY` on `demo01_tag_dictionary`, `demo01_scope_config` | Read and write config |
+| `SELECT` + `MODIFY` on `govern_tag_dictionary`, `govern_scope_config` | Read and write config |
 | `CAN USE` on SQL warehouse | Execute SQL statements |
 | `USE CATALOG` + `USE SCHEMA` on any catalog in scope | List tables, read tags via `information_schema` |
 | `APPLY TAG` on catalogs/schemas in scope | Apply/remove tags |
@@ -259,7 +259,8 @@ See [INSTRUCTIONS.md](INSTRUCTIONS.md) for the full step-by-step guide.
 2. Grant app users access to config tables (`setup/grants_primary_region.sql`)
 3. Create a Service Principal for Secondary Region access
 4. Grant the SP catalog-level permissions in Secondary Region (`setup/grants_secondary_region.sql`)
-5. Configure env vars in `app.yaml`
-6. Build frontend: `npm run build --prefix frontend`
-7. Deploy: `databricks bundle deploy --target dev --profile fevm01`
-8. Start: `databricks bundle run tag-governance-xregion --target dev --profile fevm01`
+5. Store the SP secret in Databricks Secrets: `./setup/setup_secrets.sh --profile fevm01`
+6. Configure env vars in `app.yaml` (use `{{secrets/tag-governance/sec-1-sp-secret}}` for the secret)
+7. Build frontend: `npm run build --prefix frontend`
+8. Deploy: `databricks bundle deploy --target dev --profile fevm01`
+9. Start: `databricks bundle run tag-governance-xregion --target dev --profile fevm01`

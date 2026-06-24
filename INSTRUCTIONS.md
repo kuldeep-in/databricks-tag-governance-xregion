@@ -26,8 +26,8 @@ This creates two Delta tables in the catalog/schema configured via `app.yaml` en
 
 | Table | Purpose |
 |---|---|
-| `demo01_tag_dictionary` | Tag keys, allowed values, free-text flag |
-| `demo01_scope_config` | Which catalog+schema pairs are in scope (per workspace) |
+| `govern_tag_dictionary` | Tag keys, allowed values, free-text flag, display order |
+| `govern_scope_config` | Which catalog+schema pairs are in scope (per workspace) |
 
 ---
 
@@ -39,8 +39,8 @@ The app runs all primary workspace operations as the **logged-in user** — ther
 -- Run once per user (or grant to a group)
 GRANT USE CATALOG ON CATALOG <config_catalog> TO `user@company.com`;
 GRANT USE SCHEMA  ON SCHEMA  <config_catalog>.<config_schema> TO `user@company.com`;
-GRANT SELECT, MODIFY ON TABLE <config_catalog>.<config_schema>.demo01_tag_dictionary TO `user@company.com`;
-GRANT SELECT, MODIFY ON TABLE <config_catalog>.<config_schema>.demo01_scope_config   TO `user@company.com`;
+GRANT SELECT, MODIFY ON TABLE <config_catalog>.<config_schema>.govern_tag_dictionary TO `user@company.com`;
+GRANT SELECT, MODIFY ON TABLE <config_catalog>.<config_schema>.govern_scope_config   TO `user@company.com`;
 ```
 
 Users also need `USE CATALOG`, `USE SCHEMA`, and `APPLY TAG` on any catalogs/schemas they will manage from the primary workspace.
@@ -61,12 +61,28 @@ The app uses a dedicated Service Principal (SP) for all secondary workspace oper
 2. On the SP detail page → **Secrets** tab → **Add secret**. Copy the value immediately — it is shown only once.
 3. Add the SP to the **secondary workspace** so it can be granted UC permissions there:
    - Secondary workspace → **Settings → Identity & Access → Service Principals → Add service principal**. Search by the application ID or name from Step 1.
-4. Store the client secret securely in Databricks Secrets (the client ID is not sensitive and goes directly in `app.yaml`):
+4. Store the client secret securely using the provided setup script (the client ID is not sensitive and goes directly in `app.yaml`):
+   ```bash
+   chmod +x setup/setup_secrets.sh
+   ./setup/setup_secrets.sh --profile fevm01
+   ```
+   The script will:
+   - Create the `tag-governance` secret scope (idempotent)
+   - Prompt you to enter each SP secret (input is hidden — never echoed)
+   - Grant the app service principal READ access on the scope
+   - Print the `{{secrets/...}}` reference to paste into `app.yaml`
+
+   Or run the steps manually:
    ```bash
    databricks secrets create-scope --scope tag-governance --profile fevm01
    databricks secrets put-secret --scope tag-governance --key sec-1-sp-secret --profile fevm01
-   # prompts for the secret value — never echoes it
+   # Prompts for the secret value — never echoed, never logged
+   databricks secrets put-acl --scope tag-governance --principal <app-sp-uuid> --permission READ --profile fevm01
    ```
+
+   > **App SP UUID:** printed by `databricks bundle run` on first deploy, or visible at
+   > Workspace → Compute → Apps → `tag-governance-xregion` → Service Principal.
+
    Reference it in `app.yaml` as `{{secrets/tag-governance/sec-1-sp-secret}}`.
 
 ---
@@ -122,9 +138,26 @@ env:
 |---|---|
 | `SEC_1_WORKSPACE_URL` | Full HTTPS URL of the secondary workspace |
 | `SEC_1_DISPLAY_NAME` | Human-readable label shown in the workspace selector |
-| `SEC_1_SP_CLIENT_ID` | SP application (client) ID |
-| `SEC_1_SP_CLIENT_SECRET` | SP client secret — use `{{secrets/scope/key}}` syntax (never plaintext) |
+| `SEC_1_SP_CLIENT_ID` | SP application (client) ID — not sensitive, put directly in `app.yaml` |
+| `SEC_1_SP_CLIENT_SECRET` | **Use `{{secrets/tag-governance/sec-1-sp-secret}}`** — never put the raw value here |
 | `SEC_1_SQL_WAREHOUSE_ID` | Secondary Region warehouse ID |
+
+Example `app.yaml` fragment after running the secrets setup:
+
+```yaml
+  - name: SEC_1_WORKSPACE_URL
+    value: "https://dbc-xxxxxx.cloud.databricks.com/"
+  - name: SEC_1_DISPLAY_NAME
+    value: "AWS Ireland"
+  - name: SEC_1_SP_CLIENT_ID
+    value: "{{secrets/tag-governance/sec-1-sp-client-id}}"
+  - name: SEC_1_SP_CLIENT_SECRET
+    value: "{{secrets/tag-governance/sec-1-sp-secret}}"
+  - name: SEC_1_SQL_WAREHOUSE_ID
+    value: "<warehouse-id>"
+```
+
+The `{{secrets/...}}` placeholder is **never resolved at deploy time** — it is injected as a live env var when the app container boots. The raw secret never appears in git, bundle output, or logs.
 
 The app scans `SEC_1_`, `SEC_2_`, … in order until it finds a gap. Add a `SEC_2_*` block for a second secondary workspace the same way. Secondary workspaces appear in **Settings → Workspace** on the next app start.
 
@@ -240,6 +273,29 @@ After updating scopes, users may need to **log out and back in** so a fresh toke
 
 ---
 
+## Rotating a Service Principal Secret
+
+When a SP secret expires or is compromised, rotate it **without redeploying the bundle**:
+
+```bash
+# 1. Generate a new secret for the SP in the Databricks account console.
+#    (The old secret is immediately invalidated when you generate a new one.)
+
+# 2. Update the secret in the scope — prompts for the new value:
+databricks secrets put-secret \
+  --scope tag-governance \
+  --key sec-1-sp-secret \
+  --profile fevm01
+
+# 3. Restart the app so it picks up the new value on next boot:
+databricks apps stop  tag-governance-xregion --profile fevm01
+databricks apps start tag-governance-xregion --profile fevm01
+```
+
+No code change, no `bundle deploy`, no git commit. The `{{secrets/...}}` placeholder in `app.yaml` is resolved fresh every time the app container starts.
+
+---
+
 ## Troubleshooting
 
 | Symptom | Likely Cause | Fix |
@@ -251,10 +307,12 @@ After updating scopes, users may need to **log out and back in** so a fresh toke
 | Config tables 502 — `sql` scope error | Same as above | Re-deploy; user re-login |
 | Config tables 502 — table not found | Config tables don't exist yet | Run `setup/create_config_tables.sql` |
 | Secondary workspace not appearing | `SEC_1_WORKSPACE_URL` not set in `app.yaml` | Add the `SEC_1_*` env var block, redeploy, and restart the app |
+| Secondary workspace `invalid_client` / 502 | SP secret expired or wrong | Regenerate SP secret → run `setup/setup_secrets.sh` → restart app |
+| Secondary workspace `secret not found` | Scope or key doesn't exist, or app SP lacks READ | Run `setup/setup_secrets.sh`; verify ACLs with `databricks secrets list-acls` |
 | Tags not saving on secondary workspace | SP missing `APPLY TAG` on catalog | Re-run Section 1 of `grants_secondary_region.sql` |
 | Comments not saving on secondary workspace | SP is not schema owner | Run `ALTER SCHEMA … OWNER TO <sp-id>` (Section 2 of the grants script) in secondary workspace |
 | Tables not visible for selected workspace | Wrong workspace selected in dropdown, or scope entries not added | Switch workspace in navbar; add scope entries in Configuration tab for that workspace |
-| App fails to start (startup error) | Import error or missing env var | Check `databricks apps logs tag-governance-xregion --profile fevm01` |
+| App fails to start (startup error) | Import error, missing env var, or unresolvable `{{secrets/...}}` | Check `databricks apps logs tag-governance-xregion --profile fevm01` |
 | Tables not visible in Tag Management | User lacks `USE SCHEMA` on that catalog/schema | Grant `USE CATALOG` + `USE SCHEMA` to the user on the primary workspace |
 
 ### View app logs

@@ -55,7 +55,7 @@ Local development uses `DATABRICKS_TOKEN` (PAT) as fallback when the header is a
 **Trigger:** Tab is selected (or app load, since it is the default).
 
 1. Frontend fires `GET /api/overview/metrics` (cached by React Query under `['overview-metrics']`).
-2. Server reads all **active** scope entries from `demo01_scope_config` via SQL.
+2. Server reads all **active** scope entries from `govern_scope_config` via SQL.
 3. For each scope entry the server calls `list_tables(catalog, schema, workspace_url, token)`:
    - **Primary workspace:** Runs two SQL queries via the user's token:
      1. `information_schema.tables` — table name, type, comment.
@@ -85,13 +85,13 @@ Local development uses `DATABRICKS_TOKEN` (PAT) as fallback when the header is a
 **Trigger:** User clicks the **Tag Management** tab.
 
 1. Two parallel requests fire:
-   - `GET /api/config/scope` → reads `demo01_scope_config` (all entries).
-   - `GET /api/config/tagdictionary` → reads `demo01_tag_dictionary`.
+   - `GET /api/config/scope` → reads `govern_scope_config` (all entries).
+   - `GET /api/config/tagdictionary` → reads `govern_tag_dictionary`.
 2. Active scope entries are filtered client-side to those whose `workspace_url` matches the selected
    workspace.
 3. For each matching active scope entry a parallel `GET /api/tables?catalog=…&schema=…&workspace_url=…`
    fires. Server flow per request:
-   1. Reads tag keys from `demo01_tag_dictionary`.
+   1. Reads tag keys from `govern_tag_dictionary`.
    2. Queries `information_schema.tables` for table name, type, comment.
    3. Queries `information_schema.table_tags` with a tag key filter.
    4. Merges tags onto each table row and returns the list.
@@ -207,7 +207,7 @@ No checkboxes, no bulk selection. Every row has an individual **Edit** button.
 
 - **Workspace selector cards** — displays all workspaces (primary + SEC_N_* secondaries). Clicking a card updates global `selectedWorkspace` state in `App.tsx` and persists to `localStorage`. Navbar label updates instantly.
 - **Identity banner** — fires `GET /api/config/identity` (served from React Query cache). Displays logged-in identity type, username/email, and SQL warehouse ID.
-- **Scope section** — unified for all workspaces. Catalog and schema dropdowns fire `GET /api/catalogs` and `GET /api/schemas` with the current workspace URL. Primary workspace uses user's OAuth token; secondary uses SP credentials. All add/toggle/remove operations go to `demo01_scope_config` via the user's token.
+- **Scope section** — unified for all workspaces. Catalog and schema dropdowns fire `GET /api/catalogs` and `GET /api/schemas` with the current workspace URL. Primary workspace uses user's OAuth token; secondary uses SP credentials. All add/toggle/remove operations go to `govern_scope_config` via the user's token.
 - **Add Secondary Workspace** — collapsible panel (collapsed by default). Contains the full SP setup guide (`Instructions` component). Expanding it fires no API calls.
 
 ### Scope section — browse catalogs
@@ -234,7 +234,7 @@ No checkboxes, no bulk selection. Every row has an individual **Edit** button.
 **Trigger:** User selects a catalog + schema and clicks **Add to scope**.
 
 1. Frontend calls `POST /api/config/scope` with `{ catalog, schema, is_active: true, workspace_url }`.
-2. Server runs a `MERGE INTO demo01_scope_config` statement:
+2. Server runs a `MERGE INTO govern_scope_config` statement:
    - If the row exists: updates `is_active`.
    - If new: inserts with `added_at = current_timestamp()`.
 3. The `scope` cache is invalidated; the table re-renders with the new entry.
@@ -253,7 +253,7 @@ the `is_active` column for the existing row.
 1. Frontend calls `DELETE /api/config/scope/{workspace_url}/{catalog}/{schema}`.
 2. Server runs:
    ```sql
-   DELETE FROM demo01_scope_config
+   DELETE FROM govern_scope_config
    WHERE workspace_url = '…' AND catalog_name = '…' AND schema_name = '…'
    ```
 3. Scope cache is invalidated.
@@ -263,7 +263,7 @@ the `is_active` column for the existing row.
 **Trigger:** User fills in the tag key form and clicks **Save key**.
 
 1. Frontend calls `POST /api/config/tagdictionary` with `{ tag_key, allowed_values, free_text }`.
-2. Server runs a `MERGE INTO demo01_tag_dictionary` statement:
+2. Server runs a `MERGE INTO govern_tag_dictionary` statement:
    - If the key exists: updates `allowed_values`, `free_text`, `updated_at`.
    - If new: inserts with `created_at = updated_at = current_timestamp()`.
    - `allowed_values` is stored as an `ARRAY<STRING>`.
@@ -275,7 +275,7 @@ the `is_active` column for the existing row.
 **Trigger:** User clicks **Delete** on a dictionary row.
 
 1. Frontend calls `DELETE /api/config/tagdictionary/{tag_key}`.
-2. Server runs `DELETE FROM demo01_tag_dictionary WHERE tag_key = '…'`.
+2. Server runs `DELETE FROM govern_tag_dictionary WHERE tag_key = '…'`.
 3. Tag dictionary cache is invalidated.
 
 ---

@@ -97,6 +97,19 @@ def delete_tag_dictionary(tag_key: str, token: str = Depends(current_user_token)
         raise HTTPException(status_code=502, detail=str(exc))
 
 
+class TagOrderBody(BaseModel):
+    ordered_keys: list[str]
+
+
+@router.put("/tagdictionary/order")
+def put_tag_order(body: TagOrderBody, token: str = Depends(current_user_token)):
+    try:
+        cfg.set_tag_order(body.ordered_keys, token=token)
+        return {"ordered_keys": body.ordered_keys}
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
 # --------------------------------------------------------------------------- #
 # Secondary workspaces
 # --------------------------------------------------------------------------- #

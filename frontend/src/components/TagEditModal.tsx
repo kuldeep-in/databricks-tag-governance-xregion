@@ -14,6 +14,9 @@ export default function TagEditModal({ table, tagDict, onClose }: Props) {
   const toast = useToast();
   const [values, setValues] = useState<Record<string, string>>({ ...table.tags });
 
+  const configuredKeys = new Set(tagDict.map((e) => e.tag_key));
+  const extraTagKeys = Object.keys(table.tags).filter((k) => !configuredKeys.has(k));
+
   const mutation = useMutation({
     mutationFn: (tags: Record<string, string>) =>
       apiClient.patchTableTags(table.full_name, tags, table.workspace_url ?? 'primary'),
@@ -61,9 +64,15 @@ export default function TagEditModal({ table, tagDict, onClose }: Props) {
         </div>
 
         <div className="px-5 py-4 space-y-4">
-          {tagDict.length === 0 && (
+          {/* Configured tags */}
+          {tagDict.length === 0 && extraTagKeys.length === 0 && (
             <p className="text-sm text-gray-400">
               No tag keys defined. Add them in the Configuration tab.
+            </p>
+          )}
+          {tagDict.length > 0 && (
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+              Configured tags
             </p>
           )}
           {tagDict.map((entry) => {
@@ -116,6 +125,33 @@ export default function TagEditModal({ table, tagDict, onClose }: Props) {
               </div>
             );
           })}
+
+          {/* Extra tags — exist on the table but not in the config dictionary */}
+          {extraTagKeys.length > 0 && (
+            <>
+              <div className="pt-2 border-t border-gray-100">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">
+                  Additional tags
+                  <span className="ml-1.5 font-normal normal-case text-gray-400">
+                    (not in config — clear to remove)
+                  </span>
+                </p>
+                <div className="space-y-4">
+                  {extraTagKeys.map((k) => (
+                    <div key={k} className="flex items-center gap-4">
+                      <label className="w-36 shrink-0 text-sm text-gray-500">{k}</label>
+                      <input
+                        className="flex-1 border border-gray-200 rounded px-3 py-2 text-sm bg-gray-50"
+                        value={values[k] ?? ''}
+                        onChange={(e) => setValue(k, e.target.value)}
+                        placeholder="clear to remove"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         <div className="px-5 py-4 border-t border-gray-200 flex justify-end gap-2">
